@@ -16,7 +16,7 @@ jobs:
       matrix:
         os: [windows-latest]
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v4.2.2
       - name: Setup with cache
         uses: ./
         with:
@@ -31,7 +31,7 @@ jobs:
         os: [windows-latest]
     needs: test-setup-cache
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v4.2.2
       - name: Restore with cache
         id: restore
         uses: ./
