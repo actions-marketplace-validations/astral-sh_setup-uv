@@ -1,22 +1,34 @@
+import * as fs from "node:fs";
 import * as cache from "@actions/cache";
 import * as core from "@actions/core";
 import * as exec from "@actions/exec";
-import * as fs from "node:fs";
+import * as pep440 from "@renovatebot/pep440";
 import {
-  STATE_CACHE_MATCHED_KEY,
   STATE_CACHE_KEY,
+  STATE_CACHE_MATCHED_KEY,
 } from "./cache/restore-cache";
+import { STATE_UV_PATH, STATE_UV_VERSION } from "./utils/constants";
 import {
   cacheLocalPath,
+  cachePython,
   enableCache,
   ignoreNothingToCache,
+  pythonDir,
   pruneCache as shouldPruneCache,
+  saveCache as shouldSaveCache,
 } from "./utils/inputs";
 
 export async function run(): Promise<void> {
   try {
     if (enableCache) {
-      await saveCache();
+      if (shouldSaveCache) {
+        await saveCache();
+      } else {
+        core.info("save-cache is false. Skipping save cache step.");
+      }
+      // https://github.com/nodejs/node/issues/56645#issuecomment-3077594952
+      await new Promise((resolve) => setTimeout(resolve, 50));
+
       // node will stay alive if any promises are not resolved,
       // which is a possibility if HTTP requests are dangling
       // due to retries or timeouts. We know that if we got here
@@ -47,14 +59,35 @@ async function saveCache(): Promise<void> {
     await pruneCache();
   }
 
-  core.info(`Saving cache path: ${cacheLocalPath}`);
-  if (!fs.existsSync(cacheLocalPath) && !ignoreNothingToCache) {
+  let actualCachePath = cacheLocalPath;
+  if (process.env.UV_CACHE_DIR && process.env.UV_CACHE_DIR !== cacheLocalPath) {
+    core.warning(
+      `The environment variable UV_CACHE_DIR has been changed to "${process.env.UV_CACHE_DIR}", by an action or step running after astral-sh/setup-uv. This can lead to unexpected behavior. If you expected this to happen set the cache-local-path input to "${process.env.UV_CACHE_DIR}" instead of "${cacheLocalPath}".`,
+    );
+    actualCachePath = process.env.UV_CACHE_DIR;
+  }
+
+  core.info(`Saving cache path: ${actualCachePath}`);
+  if (!fs.existsSync(actualCachePath) && !ignoreNothingToCache) {
     throw new Error(
-      `Cache path ${cacheLocalPath} does not exist on disk. This likely indicates that there are no dependencies to cache. Consider disabling the cache input if it is not needed.`,
+      `Cache path ${actualCachePath} does not exist on disk. This likely indicates that there are no dependencies to cache. Consider disabling the cache input if it is not needed.`,
     );
   }
+
+  const cachePaths = [actualCachePath];
+  if (cachePython) {
+    core.info(`Including Python cache path: ${pythonDir}`);
+    if (!fs.existsSync(pythonDir) && !ignoreNothingToCache) {
+      throw new Error(
+        `Python cache path ${pythonDir} does not exist on disk. This likely indicates that there are no dependencies to cache. Consider disabling the cache input if it is not needed.`,
+      );
+    }
+    cachePaths.push(pythonDir);
+  }
+
+  core.info(`Final cache paths: ${cachePaths.join(", ")}`);
   try {
-    await cache.saveCache([cacheLocalPath], cacheKey);
+    await cache.saveCache(cachePaths, cacheKey);
     core.info(`cache saved with the key: ${cacheKey}`);
   } catch (e) {
     if (
@@ -72,13 +105,19 @@ async function saveCache(): Promise<void> {
 }
 
 async function pruneCache(): Promise<void> {
+  const forceSupported = pep440.gte(core.getState(STATE_UV_VERSION), "0.8.24");
+
   const options: exec.ExecOptions = {
-    silent: !core.isDebug(),
+    silent: false,
   };
   const execArgs = ["cache", "prune", "--ci"];
+  if (forceSupported) {
+    execArgs.push("--force");
+  }
 
   core.info("Pruning cache...");
-  await exec.exec("uv", execArgs, options);
+  const uvPath = core.getState(STATE_UV_PATH);
+  await exec.exec(uvPath, execArgs, options);
 }
 
 run();

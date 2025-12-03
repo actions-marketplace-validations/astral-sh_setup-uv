@@ -1,26 +1,43 @@
 import * as cache from "@actions/cache";
 import * as core from "@actions/core";
+import * as exec from "@actions/exec";
+import { hashFiles } from "../hash/hash-files";
 import {
   cacheDependencyGlob,
   cacheLocalPath,
+  cachePython,
   cacheSuffix,
+  pruneCache,
+  pythonDir,
+  pythonVersion as pythonVersionInput,
+  restoreCache as shouldRestoreCache,
+  workingDirectory,
 } from "../utils/inputs";
 import { getArch, getPlatform } from "../utils/platforms";
-import { hashFiles } from "../hash/hash-files";
 
 export const STATE_CACHE_KEY = "cache-key";
 export const STATE_CACHE_MATCHED_KEY = "cache-matched-key";
 const CACHE_VERSION = "1";
 
-export async function restoreCache(version: string): Promise<void> {
-  const cacheKey = await computeKeys(version);
+export async function restoreCache(): Promise<void> {
+  const cacheKey = await computeKeys();
+  core.saveState(STATE_CACHE_KEY, cacheKey);
+
+  if (!shouldRestoreCache) {
+    core.info("restore-cache is false. Skipping restore cache step.");
+    return;
+  }
 
   let matchedKey: string | undefined;
   core.info(
     `Trying to restore uv cache from GitHub Actions cache with key: ${cacheKey}`,
   );
+  const cachePaths = [cacheLocalPath];
+  if (cachePython) {
+    cachePaths.push(pythonDir);
+  }
   try {
-    matchedKey = await cache.restoreCache([cacheLocalPath], cacheKey);
+    matchedKey = await cache.restoreCache(cachePaths, cacheKey);
   } catch (err) {
     const message = (err as Error).message;
     core.warning(message);
@@ -28,12 +45,10 @@ export async function restoreCache(version: string): Promise<void> {
     return;
   }
 
-  core.saveState(STATE_CACHE_KEY, cacheKey);
-
   handleMatchResult(matchedKey, cacheKey);
 }
 
-async function computeKeys(version: string): Promise<string> {
+async function computeKeys(): Promise<string> {
   let cacheDependencyPathHash = "-";
   if (cacheDependencyGlob !== "") {
     core.info(
@@ -41,15 +56,51 @@ async function computeKeys(version: string): Promise<string> {
     );
     cacheDependencyPathHash += await hashFiles(cacheDependencyGlob, true);
     if (cacheDependencyPathHash === "-") {
-      throw new Error(
-        `No file matched to [${cacheDependencyGlob.split("\n").join(",")}], make sure you have checked out the target repository`,
+      core.warning(
+        `No file matched to [${cacheDependencyGlob.split("\n").join(",")}]. The cache will never get invalidated. Make sure you have checked out the target repository and configured the cache-dependency-glob input correctly.`,
       );
     }
-  } else {
-    cacheDependencyPathHash += "no-dependency-glob";
+  }
+  if (cacheDependencyPathHash === "-") {
+    cacheDependencyPathHash = "-no-dependency-glob";
   }
   const suffix = cacheSuffix ? `-${cacheSuffix}` : "";
-  return `setup-uv-${CACHE_VERSION}-${getArch()}-${getPlatform()}-${version}${cacheDependencyPathHash}${suffix}`;
+  const pythonVersion = await getPythonVersion();
+  const platform = await getPlatform();
+  const pruned = pruneCache ? "-pruned" : "";
+  const python = cachePython ? "-py" : "";
+  return `setup-uv-${CACHE_VERSION}-${getArch()}-${platform}-${pythonVersion}${pruned}${python}${cacheDependencyPathHash}${suffix}`;
+}
+
+async function getPythonVersion(): Promise<string> {
+  if (pythonVersionInput !== "") {
+    return pythonVersionInput;
+  }
+
+  let output = "";
+  const options: exec.ExecOptions = {
+    listeners: {
+      stdout: (data: Buffer) => {
+        output += data.toString();
+      },
+    },
+    silent: !core.isDebug(),
+  };
+
+  try {
+    const execArgs = ["python", "find", "--directory", workingDirectory];
+    await exec.exec("uv", execArgs, options);
+    const pythonPath = output.trim();
+
+    output = "";
+    await exec.exec(pythonPath, ["--version"], options);
+    // output is like "Python 3.8.10"
+    return output.split(" ")[1].trim();
+  } catch (error) {
+    const err = error as Error;
+    core.debug(`Failed to get python version from uv. Error: ${err.message}`);
+    return "unknown";
+  }
 }
 
 function handleMatchResult(
