@@ -9,7 +9,7 @@ This allows directly using it in later steps:
 
 ```yaml
 - name: Install the latest version of uv and activate the environment
-  uses: astral-sh/setup-uv@v7
+  uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
   with:
     activate-environment: true
 - run: uv pip install pip
@@ -20,7 +20,7 @@ By default, the venv is created at `.venv` inside the `working-directory`.
 You can customize the venv location with `venv-path`, for example to place it in the runner temp directory:
 
 ```yaml
-- uses: astral-sh/setup-uv@v7
+- uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
   with:
     activate-environment: true
     venv-path: ${{ runner.temp }}/custom-venv
@@ -38,9 +38,12 @@ You can customize the venv location with `venv-path`, for example to place it in
 
 ## GitHub authentication token
 
-This action uses the GitHub API to fetch the uv release artifacts. To avoid hitting the GitHub API
-rate limit too quickly, an authentication token can be provided via the `github-token` input. By
-default, the `GITHUB_TOKEN` secret is used, which is automatically provided by GitHub Actions.
+By default, this action resolves available uv versions from
+[`astral-sh/versions`](https://github.com/astral-sh/versions), then downloads uv artifacts from
+GitHub Releases.
+
+You can provide a token via `github-token` to authenticate those downloads. By default, the
+`GITHUB_TOKEN` secret is used, which is automatically provided by GitHub Actions.
 
 If the default
 [permissions for the GitHub token](https://docs.github.com/en/actions/security-for-github-actions/security-guides/automatic-token-authentication#permissions-for-the-github_token)
@@ -48,7 +51,7 @@ are not sufficient, you can provide a custom GitHub token with the necessary per
 
 ```yaml
 - name: Install the latest version of uv with a custom GitHub token
-  uses: astral-sh/setup-uv@v7
+  uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
   with:
     github-token: ${{ secrets.CUSTOM_GITHUB_TOKEN }}
 ```
@@ -66,7 +69,7 @@ input:
 
 ```yaml
 - name: Install the latest version of uv with a custom tool dir
-  uses: astral-sh/setup-uv@v7
+  uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
   with:
     tool-dir: "/path/to/tool/dir"
 ```
@@ -85,7 +88,7 @@ If you want to change this behaviour (especially on self-hosted runners) you can
 
 ```yaml
 - name: Install the latest version of uv with a custom tool bin dir
-  uses: astral-sh/setup-uv@v7
+  uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
   with:
     tool-bin-dir: "/path/to/tool-bin/dir"
 ```
@@ -102,7 +105,7 @@ This action supports expanding the `~` character to the user's home directory fo
 
 ```yaml
 - name: Expand the tilde character
-  uses: astral-sh/setup-uv@v7
+  uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
   with:
     cache-local-path: "~/path/to/cache"
     tool-dir: "~/path/to/tool/dir"
@@ -119,7 +122,7 @@ If you want to ignore this, set the `ignore-empty-workdir` input to `true`.
 
 ```yaml
 - name: Ignore empty workdir
-  uses: astral-sh/setup-uv@v7
+  uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
   with:
     ignore-empty-workdir: true
 ```
@@ -142,7 +145,7 @@ This action sets several environment variables that influence uv's behavior and 
 
 ```yaml
 - name: Example using environment variables
-  uses: astral-sh/setup-uv@v7
+  uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
   with:
     python-version: "3.12"
     tool-dir: "/custom/tool/dir"

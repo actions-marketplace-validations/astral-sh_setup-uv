@@ -21,14 +21,14 @@ jobs:
     permissions:
       security-events: write # for zizmor
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
           persist-credentials: false
       - name: Actionlint
-        uses: eifinger/actionlint-action@447fbfe7533062b7a9ea55f790f2396fba6d052a # v1.10.0
+        uses: eifinger/actionlint-action@1fc89649be682d16ec5cf65ea16e269eb88d3982 # v1.10.2
       - name: Run zizmor
-        uses: zizmorcore/zizmor-action@135698455da5c3b3e55f73f4419e481ab68cdd95 # v0.4.1
-      - uses: actions/setup-node@6044e13b5dc448c55e2357c09f80417699197238 # v6.2.0
+        uses: zizmorcore/zizmor-action@192e21d79ab29983730a13d1382995c2307fbcaa # v0.5.7
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version-file: .nvmrc
           cache: npm
@@ -38,7 +38,7 @@ jobs:
           npm run all
       - name: Check all jobs are in all-tests-passed.needs
         run: |
-          tsc check-all-tests-passed-needs.ts
+          tsc -p tsconfig.json
           node check-all-tests-passed-needs.js
         working-directory: .github/scripts
       - name: Make sure no changes from linters are detected
@@ -51,7 +51,7 @@ jobs:
       matrix:
         os: [ubuntu-latest, macos-latest, macos-14, windows-latest]
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
           persist-credentials: false
       - name: Install latest version
@@ -76,7 +76,7 @@ jobs:
   test-uv-no-modify-path:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
           persist-credentials: false
       - name: Install with UV_NO_MODIFY_PATH set
@@ -125,7 +125,7 @@ jobs:
             expected-version: "0.1.0"
             resolution-strategy: "lowest"
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
           persist-credentials: false
       - name: Install version ${{ matrix.input.version-input }} with strategy ${{ matrix.input.resolution-strategy || 'highest' }}
@@ -154,7 +154,7 @@ jobs:
       matrix:
         version-input: ["latest", ">=0.8"]
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
           persist-credentials: false
       - name: Install version ${{ matrix.version-input }}
@@ -164,10 +164,22 @@ jobs:
       - name: Latest version gets installed
         run: |
           LATEST_VERSION=$(gh api -H "Accept: application/vnd.github+json" -H "X-GitHub-Api-Version: 2022-11-28" /repos/astral-sh/uv/releases/latest | jq -r '.tag_name')
+          UV_VERSION_OUTPUT=$(uv --version)
+
+          if [[ ! "$UV_VERSION_OUTPUT" =~ ^uv[[:space:]]+([^[:space:]]+) ]]; then
+            echo "Could not parse uv version from: $UV_VERSION_OUTPUT"
+            exit 1
+          fi
+
+          UV_VERSION="${BASH_REMATCH[1]}"
+
           echo "Latest version is $LATEST_VERSION"
-          if [ "$(uv --version)" != "uv $LATEST_VERSION" ]; then
-              echo "Wrong uv version: $(uv --version)"
-              exit 1
+          echo "uv --version output is $UV_VERSION_OUTPUT"
+          echo "Parsed uv version is $UV_VERSION"
+
+          if [ "$UV_VERSION" != "$LATEST_VERSION" ]; then
+            echo "Wrong uv version: $UV_VERSION_OUTPUT"
+            exit 1
           fi
         env:
           GH_TOKEN: ${{ github.token }}
@@ -182,7 +194,7 @@ jobs:
           - working-directory: "__tests__/fixtures/uv-toml-project"
             expected-version: "0.5.15"
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
           persist-credentials: false
       - name: Install version from ${{ matrix.input.working-directory }}
@@ -208,7 +220,7 @@ jobs:
           - version-file: "__tests__/fixtures/.tool-versions"
             expected-version: "0.5.15"
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
           persist-credentials: false
       - name: Install version from ${{ matrix.input.version-file }}
@@ -225,7 +237,7 @@ jobs:
   test-malformed-pyproject-file-fallback:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
           persist-credentials: false
       - name: Install using malformed pyproject.toml
@@ -245,7 +257,7 @@ jobs:
           - os: macos-latest
             checksum: "a70cbfbf3bb5c08b2f84963b4f12c94e08fbb2468ba418a3bfe1066fbe9e7218"
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
           persist-credentials: false
       - name: Checksum matches expected
@@ -259,7 +271,7 @@ jobs:
   test-with-explicit-token:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
           persist-credentials: false
       - name: Install default version
@@ -272,7 +284,7 @@ jobs:
   test-uvx:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
           persist-credentials: false
       - name: Install default version
@@ -285,7 +297,7 @@ jobs:
       matrix:
         os: [ubuntu-latest, macos-latest, macos-14, windows-latest]
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
           persist-credentials: false
       - name: Install default version
@@ -299,7 +311,7 @@ jobs:
       matrix:
         os: [ubuntu-latest, macos-latest, windows-latest]
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
           persist-credentials: false
       - name: Install latest version
@@ -331,7 +343,7 @@ jobs:
       matrix:
         os: [ubuntu-latest, macos-latest, windows-latest]
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
           persist-credentials: false
       - name: Install latest version
@@ -370,7 +382,7 @@ jobs:
       matrix:
         os: [ubuntu-latest, macos-latest, windows-latest]
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
           persist-credentials: false
       - name: Install latest version
@@ -418,11 +430,68 @@ jobs:
           PY
         shell: bash
 
+  test-activate-environment-no-project:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+      - name: Create incompatible pyproject.toml
+        run: |
+          cat > pyproject.toml <<'EOF'
+          [project]
+          name = "test-no-project"
+          version = "0.1.0"
+
+          [dependency-groups]
+          dev = [
+              "-e file:///${PROJECT_ROOT}/projects/pkg",
+          ]
+          EOF
+        shell: bash
+      - name: Install latest version with no-project
+        id: setup-uv
+        uses: ./
+        with:
+          python-version: 3.13.1t
+          activate-environment: true
+          no-project: true
+      - name: Verify packages can be installed
+        run: uv pip install pip
+        shell: bash
+      - name: Verify output venv is set
+        run: |
+          if [ -z "$UV_VENV" ]; then
+            echo "output venv is not set"
+            exit 1
+          fi
+          if [ ! -d "$UV_VENV" ]; then
+            echo "output venv not point to a directory: $UV_VENV"
+            exit 1
+          fi
+        shell: bash
+        env:
+          UV_VENV: ${{ steps.setup-uv.outputs.venv }}
+
+  test-debian-unstable:
+    runs-on: ubuntu-latest
+    container: debian:unstable
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+      - name: Install latest version
+        uses: ./
+        with:
+          enable-cache: true
+      - run: uv sync
+        working-directory: __tests__/fixtures/uv-project
+
   test-musl:
     runs-on: ubuntu-latest
     container: alpine
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
           persist-credentials: false
       - name: Install latest version
@@ -461,7 +530,7 @@ jobs:
           - os: windows-2025
             expected-os: "windows-2025"
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
           persist-credentials: false
       - name: Setup uv
@@ -487,7 +556,7 @@ jobs:
         enable-cache: ["true", "false", "auto"]
         os: ["ubuntu-latest", "windows-latest"]
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
           persist-credentials: false
       - name: Setup with cache
@@ -506,7 +575,7 @@ jobs:
         os: ["ubuntu-latest", "windows-latest"]
     needs: test-setup-cache
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
           persist-credentials: false
       - name: Restore with cache
@@ -540,7 +609,7 @@ jobs:
   test-setup-cache-requirements-txt:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
           persist-credentials: false
       - name: Setup with cache
@@ -556,7 +625,7 @@ jobs:
     runs-on: ubuntu-latest
     needs: test-setup-cache-requirements-txt
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
           persist-credentials: false
       - name: Restore with cache
@@ -580,7 +649,7 @@ jobs:
   test-setup-cache-dependency-glob:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
           persist-credentials: false
       - name: Setup with cache
@@ -597,7 +666,7 @@ jobs:
     runs-on: ubuntu-latest
     needs: test-setup-cache-dependency-glob
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
           persist-credentials: false
       - name: Change pyproject.toml
@@ -625,7 +694,7 @@ jobs:
   test-setup-cache-save-cache-false:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
           persist-credentials: false
       - name: Setup with cache
@@ -641,7 +710,7 @@ jobs:
     runs-on: ubuntu-latest
     needs: test-setup-cache-save-cache-false
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
           persist-credentials: false
       - name: Restore with cache
@@ -661,7 +730,7 @@ jobs:
   test-setup-cache-restore-cache-false:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
           persist-credentials: false
       - name: Setup with cache
@@ -676,7 +745,7 @@ jobs:
     runs-on: ubuntu-latest
     needs: test-setup-cache-restore-cache-false
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
           persist-credentials: false
       - name: Restore with cache
@@ -704,7 +773,7 @@ jobs:
             expected-cache-dir: "D:\\a\\_temp\\setup-uv-cache"
     runs-on: ${{ matrix.inputs.os }}
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
           persist-credentials: false
       - name: Setup with cache
@@ -722,7 +791,7 @@ jobs:
   test-cache-local-cache-disabled:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
           persist-credentials: false
       - name: Setup without cache
@@ -741,7 +810,7 @@ jobs:
   test-cache-local-cache-disabled-but-explicit-path:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
           persist-credentials: false
       - name: Setup without cache
@@ -761,7 +830,7 @@ jobs:
   test-no-python-version:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
           persist-credentials: false
       - name: Fake pyproject.toml at root
@@ -776,26 +845,40 @@ jobs:
   test-custom-manifest-file:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
           persist-credentials: false
       - name: Install from custom manifest file
         uses: ./
         with:
-          manifest-file: "https://raw.githubusercontent.com/astral-sh/setup-uv/${{ github.ref }}/__tests__/download/custom-manifest.json"
+          manifest-file: "https://raw.githubusercontent.com/astral-sh/setup-uv/${{ github.ref }}/__tests__/download/custom-manifest.ndjson"
       - run: uv sync
         working-directory: __tests__/fixtures/uv-project
       - name: Correct version gets installed
         run: |
-          if [ "$(uv --version)" != "uv 0.7.12-alpha.1" ]; then
+          if [ "$(uv --version)" != "uv 0.9.26" ]; then
             echo "Wrong uv version: $(uv --version)"
             exit 1
           fi
 
+  test-download-from-astral-mirror-false:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+      - name: Install with download-from-astral-mirror disabled
+        id: setup-uv
+        uses: ./
+        with:
+          download-from-astral-mirror: false
+      - name: Verify uv is installed
+        run: uv --version
+
   test-absolute-path:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
           persist-credentials: false
       - name: Create requirements.txt
@@ -815,7 +898,7 @@ jobs:
   test-relative-path:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
           persist-credentials: false
       - name: mkdir
@@ -839,7 +922,7 @@ jobs:
   test-cache-prune-force:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
           persist-credentials: false
       - name: Setup uv
@@ -856,7 +939,7 @@ jobs:
   test-cache-dir-from-file:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
           persist-credentials: false
       - name: Verify uv cache dir is not populated
@@ -883,7 +966,7 @@ jobs:
     env:
       UV_PYTHON_INSTALL_DIR: /tmp/missing-uv-python
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
           persist-credentials: false
       - name: Setup uv with cache and python cache enabled
@@ -904,7 +987,7 @@ jobs:
   test-cache-python-installs:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
           persist-credentials: false
       - name: Verify Python install dir is not populated
@@ -931,7 +1014,7 @@ jobs:
     runs-on: ubuntu-latest
     needs: test-cache-python-installs
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
           persist-credentials: false
       - name: Verify Python install dir does not exist
@@ -973,7 +1056,7 @@ jobs:
             expected-python-dir: "D:\\a\\_temp\\uv-python-dir"
     runs-on: ${{ matrix.inputs.os }}
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
           persist-credentials: false
       - name: Install latest version
@@ -992,7 +1075,7 @@ jobs:
   test-act:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
           persist-credentials: false
       - name: Install act
@@ -1007,7 +1090,7 @@ jobs:
   validate-typings:
     runs-on: "ubuntu-latest"
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
           persist-credentials: false
       - name: Validate typings
@@ -1031,6 +1114,8 @@ jobs:
       - test-python-version
       - test-activate-environment
       - test-activate-environment-custom-path
+      - test-activate-environment-no-project
+      - test-debian-unstable
       - test-musl
       - test-cache-key-os-version
       - test-cache-local
@@ -1048,6 +1133,7 @@ jobs:
       - test-restore-cache-restore-cache-false
       - test-no-python-version
       - test-custom-manifest-file
+      - test-download-from-astral-mirror-false
       - test-absolute-path
       - test-relative-path
       - test-cache-prune-force

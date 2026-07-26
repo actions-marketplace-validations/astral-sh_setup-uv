@@ -9,26 +9,40 @@ import {
   STATE_PYTHON_CACHE_MATCHED_KEY,
 } from "./cache/restore-cache";
 import { STATE_UV_PATH, STATE_UV_VERSION } from "./utils/constants";
-import {
-  cacheLocalPath,
-  cachePython,
-  enableCache,
-  ignoreNothingToCache,
-  pythonDir,
-  pruneCache as shouldPruneCache,
-  saveCache as shouldSaveCache,
-} from "./utils/inputs";
+import { loadInputs, type SetupInputs } from "./utils/inputs";
+import * as log from "./utils/logging";
+
+function formatUnexpectedFailure(error: unknown): string {
+  if (error instanceof Error) {
+    return error.stack ?? error.message;
+  }
+  return String(error);
+}
+
+function failUnexpectedly(event: string, error: unknown): never {
+  core.setFailed(`${event}: ${formatUnexpectedFailure(error)}`);
+  process.exit(1);
+}
+
+process.on("uncaughtException", (error) => {
+  failUnexpectedly("Uncaught exception", error);
+});
+
+process.on("unhandledRejection", (reason) => {
+  failUnexpectedly("Unhandled promise rejection", reason);
+});
 
 export async function run(): Promise<void> {
   try {
-    if (enableCache) {
-      if (shouldSaveCache) {
-        await saveCache();
+    const inputs = loadInputs();
+    if (inputs.enableCache) {
+      if (inputs.saveCache) {
+        await saveCache(inputs);
       } else {
-        core.info("save-cache is false. Skipping save cache step.");
+        log.info("save-cache is false. Skipping save cache step.");
       }
-      // https://github.com/nodejs/node/issues/56645#issuecomment-3077594952
-      await new Promise((resolve) => setTimeout(resolve, 50));
+      // https://github.com/nodejs/node/issues/56645#issuecomment-3924958861
+      await new Promise((resolve) => setTimeout(resolve, 100));
 
       // node will stay alive if any promises are not resolved,
       // which is a possibility if HTTP requests are dangling
@@ -43,25 +57,25 @@ export async function run(): Promise<void> {
   }
 }
 
-async function saveCache(): Promise<void> {
+async function saveCache(inputs: SetupInputs): Promise<void> {
   const cacheKey = core.getState(STATE_CACHE_KEY);
   const matchedKey = core.getState(STATE_CACHE_MATCHED_KEY);
 
   if (!cacheKey) {
-    core.warning("Error retrieving cache key from state.");
+    log.warning("Error retrieving cache key from state.");
     return;
   }
   if (matchedKey === cacheKey) {
-    core.info(`Cache hit occurred on key ${cacheKey}, not saving cache.`);
+    log.info(`Cache hit occurred on key ${cacheKey}, not saving cache.`);
   } else {
-    if (shouldPruneCache) {
+    if (inputs.pruneCache) {
       await pruneCache();
     }
 
-    const actualCachePath = getUvCachePath();
+    const actualCachePath = getUvCachePath(inputs);
     if (!fs.existsSync(actualCachePath)) {
-      if (ignoreNothingToCache) {
-        core.info(
+      if (inputs.ignoreNothingToCache) {
+        log.info(
           "No cacheable uv cache paths were found. Ignoring because ignore-nothing-to-cache is enabled.",
         );
       } else {
@@ -79,10 +93,10 @@ async function saveCache(): Promise<void> {
     }
   }
 
-  if (cachePython) {
-    if (!fs.existsSync(pythonDir)) {
-      core.warning(
-        `Python cache path ${pythonDir} does not exist on disk. Skipping Python cache save because no managed Python installation was found. If you want uv to install managed Python instead of using a system interpreter, set UV_PYTHON_PREFERENCE=only-managed.`,
+  if (inputs.cachePython) {
+    if (!fs.existsSync(inputs.pythonDir)) {
+      log.warning(
+        `Python cache path ${inputs.pythonDir} does not exist on disk. Skipping Python cache save because no managed Python installation was found. If you want uv to install managed Python instead of using a system interpreter, set UV_PYTHON_PREFERENCE=only-managed.`,
       );
       return;
     }
@@ -90,7 +104,7 @@ async function saveCache(): Promise<void> {
     const pythonCacheKey = `${cacheKey}-python`;
     await saveCacheToKey(
       pythonCacheKey,
-      pythonDir,
+      inputs.pythonDir,
       STATE_PYTHON_CACHE_MATCHED_KEY,
       "Python cache",
     );
@@ -108,27 +122,27 @@ async function pruneCache(): Promise<void> {
     execArgs.push("--force");
   }
 
-  core.info("Pruning cache...");
+  log.info("Pruning cache...");
   const uvPath = core.getState(STATE_UV_PATH);
   await exec.exec(uvPath, execArgs, options);
 }
 
-function getUvCachePath(): string {
-  if (cacheLocalPath === undefined) {
+function getUvCachePath(inputs: SetupInputs): string {
+  if (inputs.cacheLocalPath === undefined) {
     throw new Error(
       "cache-local-path is not set. Cannot save cache without a valid cache path.",
     );
   }
   if (
     process.env.UV_CACHE_DIR &&
-    process.env.UV_CACHE_DIR !== cacheLocalPath.path
+    process.env.UV_CACHE_DIR !== inputs.cacheLocalPath.path
   ) {
-    core.warning(
-      `The environment variable UV_CACHE_DIR has been changed to "${process.env.UV_CACHE_DIR}", by an action or step running after astral-sh/setup-uv. This can lead to unexpected behavior. If you expected this to happen set the cache-local-path input to "${process.env.UV_CACHE_DIR}" instead of "${cacheLocalPath.path}".`,
+    log.warning(
+      `The environment variable UV_CACHE_DIR has been changed to "${process.env.UV_CACHE_DIR}", by an action or step running after astral-sh/setup-uv. This can lead to unexpected behavior. If you expected this to happen set the cache-local-path input to "${process.env.UV_CACHE_DIR}" instead of "${inputs.cacheLocalPath.path}".`,
     );
     return process.env.UV_CACHE_DIR;
   }
-  return cacheLocalPath.path;
+  return inputs.cacheLocalPath.path;
 }
 
 async function saveCacheToKey(
@@ -140,15 +154,13 @@ async function saveCacheToKey(
   const matchedKey = core.getState(stateKey);
 
   if (matchedKey === cacheKey) {
-    core.info(
-      `${cacheName} hit occurred on key ${cacheKey}, not saving cache.`,
-    );
+    log.info(`${cacheName} hit occurred on key ${cacheKey}, not saving cache.`);
     return;
   }
 
-  core.info(`Including ${cacheName} path: ${cachePath}`);
+  log.info(`Including ${cacheName} path: ${cachePath}`);
   await cache.saveCache([cachePath], cacheKey);
-  core.info(`${cacheName} saved with key: ${cacheKey}`);
+  log.info(`${cacheName} saved with key: ${cacheKey}`);
 }
 
 run();

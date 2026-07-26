@@ -1,6 +1,7 @@
 import path from "node:path";
 import * as core from "@actions/core";
 import { getConfigValueFromTomlFile } from "./config-file";
+import * as log from "./logging";
 
 export enum CacheLocalSource {
   Input,
@@ -9,53 +10,131 @@ export enum CacheLocalSource {
   Default,
 }
 
-export const workingDirectory = core.getInput("working-directory");
-export const version = core.getInput("version");
-export const versionFile = getVersionFile();
-export const pythonVersion = core.getInput("python-version");
-export const activateEnvironment = core.getBooleanInput("activate-environment");
-export const venvPath = getVenvPath();
-export const checkSum = core.getInput("checksum");
-export const enableCache = getEnableCache();
-export const restoreCache = core.getInput("restore-cache") === "true";
-export const saveCache = core.getInput("save-cache") === "true";
-export const cacheSuffix = core.getInput("cache-suffix") || "";
-export const cacheLocalPath = getCacheLocalPath();
-export const cacheDependencyGlob = getCacheDependencyGlob();
-export const pruneCache = core.getInput("prune-cache") === "true";
-export const cachePython = core.getInput("cache-python") === "true";
-export const ignoreNothingToCache =
-  core.getInput("ignore-nothing-to-cache") === "true";
-export const ignoreEmptyWorkdir =
-  core.getInput("ignore-empty-workdir") === "true";
-export const toolBinDir = getToolBinDir();
-export const toolDir = getToolDir();
-export const pythonDir = getUvPythonDir();
-export const githubToken = core.getInput("github-token");
-export const manifestFile = getManifestFile();
-export const addProblemMatchers =
-  core.getInput("add-problem-matchers") === "true";
-export const resolutionStrategy = getResolutionStrategy();
+export interface CacheLocalPath {
+  path: string;
+  source: CacheLocalSource;
+}
 
-function getVersionFile(): string {
+export type ResolutionStrategy = "highest" | "lowest";
+
+export interface SetupInputs {
+  workingDirectory: string;
+  version: string;
+  versionFile: string;
+  pythonVersion: string;
+  activateEnvironment: boolean;
+  noProject: boolean;
+  venvPath: string;
+  checksum: string;
+  enableCache: boolean;
+  restoreCache: boolean;
+  saveCache: boolean;
+  cacheSuffix: string;
+  cacheLocalPath?: CacheLocalPath;
+  cacheDependencyGlob: string;
+  pruneCache: boolean;
+  cachePython: boolean;
+  ignoreNothingToCache: boolean;
+  ignoreEmptyWorkdir: boolean;
+  toolBinDir?: string;
+  toolDir?: string;
+  pythonDir: string;
+  githubToken: string;
+  manifestFile?: string;
+  downloadFromAstralMirror: boolean;
+  addProblemMatchers: boolean;
+  quiet: boolean;
+  resolutionStrategy: ResolutionStrategy;
+}
+
+export function loadInputs(): SetupInputs {
+  const workingDirectory = core.getInput("working-directory");
+  const version = core.getInput("version");
+  const versionFile = getVersionFile(workingDirectory);
+  const pythonVersion = core.getInput("python-version");
+  const activateEnvironment = core.getBooleanInput("activate-environment");
+  const noProject = core.getBooleanInput("no-project");
+  const venvPath = getVenvPath(workingDirectory, activateEnvironment);
+  const checksum = core.getInput("checksum");
+  const enableCache = getEnableCache();
+  const restoreCache = core.getInput("restore-cache") === "true";
+  const saveCache = core.getInput("save-cache") === "true";
+  const cacheSuffix = core.getInput("cache-suffix") || "";
+  const cacheLocalPath = getCacheLocalPath(
+    workingDirectory,
+    versionFile,
+    enableCache,
+  );
+  const cacheDependencyGlob = getCacheDependencyGlob(workingDirectory);
+  const pruneCache = core.getInput("prune-cache") === "true";
+  const cachePython = core.getInput("cache-python") === "true";
+  const ignoreNothingToCache =
+    core.getInput("ignore-nothing-to-cache") === "true";
+  const ignoreEmptyWorkdir = core.getInput("ignore-empty-workdir") === "true";
+  const toolBinDir = getToolBinDir(workingDirectory);
+  const toolDir = getToolDir(workingDirectory);
+  const pythonDir = getUvPythonDir();
+  const githubToken = core.getInput("github-token");
+  const manifestFile = getManifestFile();
+  const downloadFromAstralMirror =
+    core.getInput("download-from-astral-mirror") === "true";
+  const addProblemMatchers = core.getInput("add-problem-matchers") === "true";
+  const quiet = core.getInput("quiet") === "true";
+  const resolutionStrategy = getResolutionStrategy();
+
+  return {
+    activateEnvironment,
+    addProblemMatchers,
+    cacheDependencyGlob,
+    cacheLocalPath,
+    cachePython,
+    cacheSuffix,
+    checksum,
+    downloadFromAstralMirror,
+    enableCache,
+    githubToken,
+    ignoreEmptyWorkdir,
+    ignoreNothingToCache,
+    manifestFile,
+    noProject,
+    pruneCache,
+    pythonDir,
+    pythonVersion,
+    quiet,
+    resolutionStrategy,
+    restoreCache,
+    saveCache,
+    toolBinDir,
+    toolDir,
+    venvPath,
+    version,
+    versionFile,
+    workingDirectory,
+  };
+}
+
+function getVersionFile(workingDirectory: string): string {
   const versionFileInput = core.getInput("version-file");
   if (versionFileInput !== "") {
     const tildeExpanded = expandTilde(versionFileInput);
-    return resolveRelativePath(tildeExpanded);
+    return resolveRelativePath(workingDirectory, tildeExpanded);
   }
   return versionFileInput;
 }
 
-function getVenvPath(): string {
+function getVenvPath(
+  workingDirectory: string,
+  activateEnvironment: boolean,
+): string {
   const venvPathInput = core.getInput("venv-path");
   if (venvPathInput !== "") {
     if (!activateEnvironment) {
-      core.warning("venv-path is only used when activate-environment is true");
+      log.warning("venv-path is only used when activate-environment is true");
     }
     const tildeExpanded = expandTilde(venvPathInput);
-    return normalizePath(resolveRelativePath(tildeExpanded));
+    return normalizePath(resolveRelativePath(workingDirectory, tildeExpanded));
   }
-  return normalizePath(resolveRelativePath(".venv"));
+  return normalizePath(resolveRelativePath(workingDirectory, ".venv"));
 }
 
 function getEnableCache(): boolean {
@@ -66,11 +145,11 @@ function getEnableCache(): boolean {
   return enableCacheInput === "true";
 }
 
-function getToolBinDir(): string | undefined {
+function getToolBinDir(workingDirectory: string): string | undefined {
   const toolBinDirInput = core.getInput("tool-bin-dir");
   if (toolBinDirInput !== "") {
     const tildeExpanded = expandTilde(toolBinDirInput);
-    return resolveRelativePath(tildeExpanded);
+    return resolveRelativePath(workingDirectory, tildeExpanded);
   }
   if (process.platform === "win32") {
     if (process.env.RUNNER_TEMP !== undefined) {
@@ -83,11 +162,11 @@ function getToolBinDir(): string | undefined {
   return undefined;
 }
 
-function getToolDir(): string | undefined {
+function getToolDir(workingDirectory: string): string | undefined {
   const toolDirInput = core.getInput("tool-dir");
   if (toolDirInput !== "") {
     const tildeExpanded = expandTilde(toolDirInput);
-    return resolveRelativePath(tildeExpanded);
+    return resolveRelativePath(workingDirectory, tildeExpanded);
   }
   if (process.platform === "win32") {
     if (process.env.RUNNER_TEMP !== undefined) {
@@ -100,29 +179,31 @@ function getToolDir(): string | undefined {
   return undefined;
 }
 
-function getCacheLocalPath():
-  | {
-      path: string;
-      source: CacheLocalSource;
-    }
-  | undefined {
+function getCacheLocalPath(
+  workingDirectory: string,
+  versionFile: string,
+  enableCache: boolean,
+): CacheLocalPath | undefined {
   const cacheLocalPathInput = core.getInput("cache-local-path");
   if (cacheLocalPathInput !== "") {
     const tildeExpanded = expandTilde(cacheLocalPathInput);
     return {
-      path: resolveRelativePath(tildeExpanded),
+      path: resolveRelativePath(workingDirectory, tildeExpanded),
       source: CacheLocalSource.Input,
     };
   }
-  const cacheDirFromConfig = getCacheDirFromConfig();
+  const cacheDirFromConfig = getCacheDirFromConfig(
+    workingDirectory,
+    versionFile,
+  );
   if (cacheDirFromConfig !== undefined) {
     return { path: cacheDirFromConfig, source: CacheLocalSource.Config };
   }
   if (process.env.UV_CACHE_DIR !== undefined) {
-    core.info(`UV_CACHE_DIR is already set to ${process.env.UV_CACHE_DIR}`);
+    log.info(`UV_CACHE_DIR is already set to ${process.env.UV_CACHE_DIR}`);
     return { path: process.env.UV_CACHE_DIR, source: CacheLocalSource.Env };
   }
-  if (getEnableCache()) {
+  if (enableCache) {
     if (process.env.RUNNER_ENVIRONMENT === "github-hosted") {
       if (process.env.RUNNER_TEMP !== undefined) {
         return {
@@ -147,18 +228,21 @@ function getCacheLocalPath():
   }
 }
 
-function getCacheDirFromConfig(): string | undefined {
+function getCacheDirFromConfig(
+  workingDirectory: string,
+  versionFile: string,
+): string | undefined {
   for (const filePath of [versionFile, "uv.toml", "pyproject.toml"]) {
-    const resolvedPath = resolveRelativePath(filePath);
+    const resolvedPath = resolveRelativePath(workingDirectory, filePath);
     try {
       const cacheDir = getConfigValueFromTomlFile(resolvedPath, "cache-dir");
       if (cacheDir !== undefined) {
-        core.info(`Found cache-dir in ${resolvedPath}: ${cacheDir}`);
+        log.info(`Found cache-dir in ${resolvedPath}: ${cacheDir}`);
         return cacheDir;
       }
     } catch (err) {
       const message = (err as Error).message;
-      core.warning(`Error while parsing ${filePath}: ${message}`);
+      log.warning(`Error while parsing ${filePath}: ${message}`);
       return undefined;
     }
   }
@@ -167,7 +251,7 @@ function getCacheDirFromConfig(): string | undefined {
 
 export function getUvPythonDir(): string {
   if (process.env.UV_PYTHON_INSTALL_DIR !== undefined) {
-    core.info(
+    log.info(
       `UV_PYTHON_INSTALL_DIR is already set to ${process.env.UV_PYTHON_INSTALL_DIR}`,
     );
     return process.env.UV_PYTHON_INSTALL_DIR;
@@ -175,9 +259,8 @@ export function getUvPythonDir(): string {
   if (process.env.RUNNER_ENVIRONMENT !== "github-hosted") {
     if (process.platform === "win32") {
       return `${process.env.APPDATA}${path.sep}uv${path.sep}python`;
-    } else {
-      return `${process.env.HOME}${path.sep}.local${path.sep}share${path.sep}uv${path.sep}python`;
     }
+    return `${process.env.HOME}${path.sep}.local${path.sep}share${path.sep}uv${path.sep}python`;
   }
   if (process.env.RUNNER_TEMP !== undefined) {
     return `${process.env.RUNNER_TEMP}${path.sep}uv-python-dir`;
@@ -187,14 +270,14 @@ export function getUvPythonDir(): string {
   );
 }
 
-function getCacheDependencyGlob(): string {
+function getCacheDependencyGlob(workingDirectory: string): string {
   const cacheDependencyGlobInput = core.getInput("cache-dependency-glob");
   if (cacheDependencyGlobInput !== "") {
     return cacheDependencyGlobInput
       .split("\n")
       .map((part) => part.trim())
       .map((part) => expandTilde(part))
-      .map((part) => resolveRelativePath(part))
+      .map((part) => resolveRelativePath(workingDirectory, part))
       .join("\n");
   }
   return cacheDependencyGlobInput;
@@ -220,7 +303,10 @@ function normalizePath(inputPath: string): string {
   return trimmed;
 }
 
-function resolveRelativePath(inputPath: string): string {
+function resolveRelativePath(
+  workingDirectory: string,
+  inputPath: string,
+): string {
   const hasNegation = inputPath.startsWith("!");
   const pathWithoutNegation = hasNegation ? inputPath.substring(1) : inputPath;
 
@@ -240,7 +326,7 @@ function getManifestFile(): string | undefined {
   return undefined;
 }
 
-function getResolutionStrategy(): "highest" | "lowest" {
+function getResolutionStrategy(): ResolutionStrategy {
   const resolutionStrategyInput = core.getInput("resolution-strategy");
   if (resolutionStrategyInput === "lowest") {
     return "lowest";

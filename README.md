@@ -26,7 +26,7 @@ Set up your GitHub Actions workflow with a specific version of [uv](https://docs
 
 ```yaml
 - name: Install the latest version of uv
-  uses: astral-sh/setup-uv@v7
+  uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
 ```
 
 If you do not specify a version, this action will look for a [required-version](https://docs.astral.sh/uv/reference/settings/#required-version)
@@ -42,12 +42,12 @@ Have a look under [Advanced Configuration](#advanced-configuration) for detailed
 
 ```yaml
 - name: Install uv with all available options
-  uses: astral-sh/setup-uv@v7
+  uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
   with:
     # The version of uv to install (default: searches for version in config files, then latest)
     version: ""
 
-    # Path to a file containing the version of uv to install (default: searches uv.toml then pyproject.toml)
+    # Path to a file containing the version of uv to install, e.g., uv.toml, pyproject.toml, .tool-versions, requirements.txt or uv.lock (default: searches uv.toml then pyproject.toml)
     version-file: ""
 
     # Resolution strategy when resolving version ranges: 'highest' or 'lowest'
@@ -62,13 +62,16 @@ Have a look under [Advanced Configuration](#advanced-configuration) for detailed
     # Custom path for the virtual environment when using activate-environment (default: .venv in the working directory)
     venv-path: ""
 
+    # Pass --no-project when creating the venv with activate-environment.
+    no-project: "false"
+
     # The directory to execute all commands in and look for files such as pyproject.toml
     working-directory: ""
 
     # The checksum of the uv version to install
     checksum: ""
 
-    # Used to increase the rate limit when retrieving versions and downloading uv
+    # Used when downloading uv from GitHub releases
     github-token: ${{ github.token }}
 
     # Enable uploading of the uv cache: true, false, or auto (enabled on GitHub-hosted runners, disabled on self-hosted runners)
@@ -97,7 +100,7 @@ Have a look under [Advanced Configuration](#advanced-configuration) for detailed
     cache-local-path: ""
 
     # Prune cache before saving
-    prune-cache: "true"
+    prune-cache: "false"
 
     # Upload managed Python installations to the GitHub Actions cache
     cache-python: "false"
@@ -114,11 +117,17 @@ Have a look under [Advanced Configuration](#advanced-configuration) for detailed
     # Custom path to set UV_TOOL_BIN_DIR to
     tool-bin-dir: ""
 
-    # URL to the manifest file containing available versions and download URLs
+    # URL to a custom manifest file in the astral-sh/versions format
     manifest-file: ""
+
+    # Download uv from the Astral mirror instead of directly from GitHub Releases
+    download-from-astral-mirror: "true"
 
     # Add problem matchers
     add-problem-matchers: "true"
+
+    # Suppress info-level log output. Only warnings and errors are shown
+    quiet: "false"
 ```
 
 ### Outputs
@@ -139,7 +148,7 @@ This will override any python version specifications in `pyproject.toml` and `.p
 
 ```yaml
 - name: Install the latest version of uv and set the python version to 3.13t
-  uses: astral-sh/setup-uv@v7
+  uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
   with:
     python-version: 3.13t
 - run: uv pip install --python=3.13t pip
@@ -157,7 +166,7 @@ jobs:
     steps:
       - uses: actions/checkout@v5
       - name: Install the latest version of uv and set the python version
-        uses: astral-sh/setup-uv@v7
+        uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
         with:
           python-version: ${{ matrix.python-version }}
       - name: Test with python ${{ matrix.python-version }}
@@ -174,7 +183,7 @@ It also controls where [the venv gets created](#activate-environment), unless `v
 
 ```yaml
 - name: Install uv based on the config files in the working-directory
-  uses: astral-sh/setup-uv@v7
+  uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
   with:
     working-directory: my/subproject/dir
 ```
@@ -190,10 +199,12 @@ For more advanced configuration options, see our detailed documentation:
 
 ## How it works
 
-This action downloads uv from the uv repo's official
-[GitHub Releases](https://github.com/astral-sh/uv) and uses the
-[GitHub Actions Toolkit](https://github.com/actions/toolkit) to cache it as a tool to speed up
-consecutive runs on self-hosted runners.
+By default, this action resolves uv versions from the
+[`astral-sh/versions`](https://github.com/astral-sh/versions) manifest and downloads uv from the
+official [GitHub Releases](https://github.com/astral-sh/uv).
+
+It then uses the [GitHub Actions Toolkit](https://github.com/actions/toolkit) to cache uv as a
+tool to speed up consecutive runs on self-hosted runners.
 
 The installed version of uv is then added to the runner PATH, enabling later steps to invoke it
 by name (`uv`).
@@ -214,7 +225,7 @@ For example:
 - name: Checkout the repository
   uses: actions/checkout@main
 - name: Install the latest version of uv
-  uses: astral-sh/setup-uv@v7
+  uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
   with:
     enable-cache: true
 - name: Test
@@ -226,7 +237,7 @@ To install a specific version of Python, use
 
 ```yaml
 - name: Install the latest version of uv
-  uses: astral-sh/setup-uv@v7
+  uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
   with:
     enable-cache: true
 - name: Install Python 3.12
@@ -245,7 +256,7 @@ output:
   uses: actions/checkout@main
 - name: Install the default version of uv
   id: setup-uv
-  uses: astral-sh/setup-uv@v7
+  uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
 - name: Print the installed version
   run: echo "Installed uv version is ${{ steps.setup-uv.outputs.uv-version }}"
 ```

@@ -13,6 +13,7 @@ export type Architecture =
   | "x86_64"
   | "aarch64"
   | "s390x"
+  | "riscv64gc"
   | "powerpc64le";
 
 export function getArch(): Architecture | undefined {
@@ -21,6 +22,7 @@ export function getArch(): Architecture | undefined {
     arm64: "aarch64",
     ia32: "i686",
     ppc64: "powerpc64le",
+    riscv64: "riscv64gc",
     s390x: "s390x",
     x64: "x86_64",
   };
@@ -100,19 +102,41 @@ export function getOSNameVersion(): string {
 
 function getLinuxOSNameVersion(): string {
   const files = ["/etc/os-release", "/usr/lib/os-release"];
+  let idWithoutVersion: string | undefined;
 
   for (const file of files) {
     try {
       const content = fs.readFileSync(file, "utf8");
       const id = parseOsReleaseValue(content, "ID");
       const versionId = parseOsReleaseValue(content, "VERSION_ID");
+      // Fallback for rolling releases (debian:unstable/testing, arch, etc.)
+      // that don't have VERSION_ID but have VERSION_CODENAME or BUILD_ID
+      const versionCodename = parseOsReleaseValue(content, "VERSION_CODENAME");
+      const buildId = parseOsReleaseValue(content, "BUILD_ID");
 
       if (id && versionId) {
         return `${id}-${versionId}`;
       }
+      if (id && versionCodename) {
+        return `${id}-${versionCodename}`;
+      }
+      if (id && buildId) {
+        return `${id}-${buildId}`;
+      }
+      // Remember the ID but keep looking: the next file might still
+      // provide a version field
+      if (id && idWithoutVersion === undefined) {
+        idWithoutVersion = id;
+      }
     } catch {
       // Try next file
     }
+  }
+
+  // Fallback for rolling releases (e.g. void) that have no version
+  // field at all
+  if (idWithoutVersion) {
+    return idWithoutVersion;
   }
 
   throw new Error(

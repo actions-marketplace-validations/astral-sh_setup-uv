@@ -4,42 +4,45 @@ import * as core from "@actions/core";
 import * as exec from "@actions/exec";
 import { restoreCache } from "./cache/restore-cache";
 import {
-  downloadVersionFromManifest,
-  resolveVersion,
+  downloadVersion,
   tryGetFromToolCache,
 } from "./download/download-version";
 import { STATE_UV_PATH, STATE_UV_VERSION } from "./utils/constants";
-import {
-  activateEnvironment as activateEnvironmentInput,
-  addProblemMatchers,
-  CacheLocalSource,
-  cacheLocalPath,
-  checkSum,
-  enableCache,
-  githubToken,
-  ignoreEmptyWorkdir,
-  manifestFile,
-  pythonDir,
-  pythonVersion,
-  resolutionStrategy,
-  toolBinDir,
-  toolDir,
-  venvPath,
-  versionFile as versionFileInput,
-  version as versionInput,
-  workingDirectory,
-} from "./utils/inputs";
+import { CacheLocalSource, loadInputs, type SetupInputs } from "./utils/inputs";
+import * as log from "./utils/logging";
 import {
   type Architecture,
   getArch,
   getPlatform,
   type Platform,
 } from "./utils/platforms";
-import { getUvVersionFromFile } from "./version/resolve";
+import { resolveUvVersion } from "./version/resolve";
 
-async function getPythonVersion(): Promise<string> {
-  if (pythonVersion !== "") {
-    return pythonVersion;
+const sourceDir = __dirname;
+
+function formatUnexpectedFailure(error: unknown): string {
+  if (error instanceof Error) {
+    return error.stack ?? error.message;
+  }
+  return String(error);
+}
+
+function failUnexpectedly(event: string, error: unknown): never {
+  core.setFailed(`${event}: ${formatUnexpectedFailure(error)}`);
+  process.exit(1);
+}
+
+process.on("uncaughtException", (error) => {
+  failUnexpectedly("Uncaught exception", error);
+});
+
+process.on("unhandledRejection", (reason) => {
+  failUnexpectedly("Unhandled promise rejection", reason);
+});
+
+async function getPythonVersion(inputs: SetupInputs): Promise<string> {
+  if (inputs.pythonVersion !== "") {
+    return inputs.pythonVersion;
   }
 
   let output = "";
@@ -53,7 +56,7 @@ async function getPythonVersion(): Promise<string> {
   };
 
   try {
-    const execArgs = ["python", "find", "--directory", workingDirectory];
+    const execArgs = ["python", "find", "--directory", inputs.workingDirectory];
     await exec.exec("uv", execArgs, options);
     const pythonPath = output.trim();
 
@@ -69,54 +72,55 @@ async function getPythonVersion(): Promise<string> {
 }
 
 async function run(): Promise<void> {
-  detectEmptyWorkdir();
-  const platform = await getPlatform();
-  const arch = getArch();
-
   try {
+    const inputs = loadInputs();
+    detectEmptyWorkdir(inputs);
+    const platform = await getPlatform();
+    const arch = getArch();
+
     if (platform === undefined) {
       throw new Error(`Unsupported platform: ${process.platform}`);
     }
     if (arch === undefined) {
       throw new Error(`Unsupported architecture: ${process.arch}`);
     }
-    const setupResult = await setupUv(platform, arch, checkSum, githubToken);
+    const setupResult = await setupUv(inputs, platform, arch);
 
-    addToolBinToPath();
+    addToolBinToPath(inputs);
     addUvToPathAndOutput(setupResult.uvDir);
-    setToolDir();
-    addPythonDirToPath();
-    setupPython();
-    await activateEnvironment();
-    addMatchers();
-    setCacheDir();
+    setToolDir(inputs);
+    addPythonDirToPath(inputs);
+    setupPython(inputs);
+    await activateEnvironment(inputs);
+    addMatchers(inputs);
+    setCacheDir(inputs);
 
     core.setOutput("uv-version", setupResult.version);
     core.saveState(STATE_UV_VERSION, setupResult.version);
-    core.info(`Successfully installed uv version ${setupResult.version}`);
+    log.info(`Successfully installed uv version ${setupResult.version}`);
 
-    const pythonVersion = await getPythonVersion();
-    core.setOutput("python-version", pythonVersion);
+    const detectedPythonVersion = await getPythonVersion(inputs);
+    core.setOutput("python-version", detectedPythonVersion);
 
-    if (enableCache) {
-      await restoreCache(pythonVersion);
+    if (inputs.enableCache) {
+      await restoreCache(inputs, detectedPythonVersion);
     }
-    // https://github.com/nodejs/node/issues/56645#issuecomment-3077594952
-    await new Promise((resolve) => setTimeout(resolve, 50));
+    // https://github.com/nodejs/node/issues/56645#issuecomment-3924958861
+    await new Promise((resolve) => setTimeout(resolve, 100));
     process.exit(0);
   } catch (err) {
     core.setFailed((err as Error).message);
   }
 }
 
-function detectEmptyWorkdir(): void {
-  if (fs.readdirSync(workingDirectory).length === 0) {
-    if (ignoreEmptyWorkdir) {
-      core.info(
+function detectEmptyWorkdir(inputs: SetupInputs): void {
+  if (fs.readdirSync(inputs.workingDirectory).length === 0) {
+    if (inputs.ignoreEmptyWorkdir) {
+      log.info(
         "Empty workdir detected. Ignoring because ignore-empty-workdir is enabled",
       );
     } else {
-      core.warning(
+      log.warning(
         "Empty workdir detected. This may cause unexpected behavior. You can enable ignore-empty-workdir to mute this warning.",
       );
     }
@@ -124,78 +128,40 @@ function detectEmptyWorkdir(): void {
 }
 
 async function setupUv(
+  inputs: SetupInputs,
   platform: Platform,
   arch: Architecture,
-  checkSum: string | undefined,
-  githubToken: string,
 ): Promise<{ uvDir: string; version: string }> {
-  const resolvedVersion = await determineVersion(manifestFile);
+  const resolvedVersion = await resolveUvVersion({
+    manifestFile: inputs.manifestFile,
+    resolutionStrategy: inputs.resolutionStrategy,
+    version: inputs.version,
+    versionFile: inputs.versionFile,
+    workingDirectory: inputs.workingDirectory,
+  });
   const toolCacheResult = tryGetFromToolCache(arch, resolvedVersion);
   if (toolCacheResult.installedPath) {
-    core.info(`Found uv in tool-cache for ${toolCacheResult.version}`);
+    log.info(`Found uv in tool-cache for ${toolCacheResult.version}`);
     return {
       uvDir: toolCacheResult.installedPath,
       version: toolCacheResult.version,
     };
   }
 
-  const downloadVersionResult = await downloadVersionFromManifest(
-    manifestFile,
+  const downloadResult = await downloadVersion(
     platform,
     arch,
     resolvedVersion,
-    checkSum,
-    githubToken,
+    inputs.checksum,
+    inputs.githubToken,
+    inputs.manifestFile,
+    inputs.downloadFromAstralMirror,
   );
 
   return {
-    uvDir: downloadVersionResult.cachedToolDir,
-    version: downloadVersionResult.version,
+    uvDir: downloadResult.cachedToolDir,
+    version: downloadResult.version,
   };
-}
-
-async function determineVersion(
-  manifestFile: string | undefined,
-): Promise<string> {
-  if (versionInput !== "") {
-    return await resolveVersion(
-      versionInput,
-      manifestFile,
-      githubToken,
-      resolutionStrategy,
-    );
-  }
-  if (versionFileInput !== "") {
-    const versionFromFile = getUvVersionFromFile(versionFileInput);
-    if (versionFromFile === undefined) {
-      throw new Error(
-        `Could not determine uv version from file: ${versionFileInput}`,
-      );
-    }
-    return await resolveVersion(
-      versionFromFile,
-      manifestFile,
-      githubToken,
-      resolutionStrategy,
-    );
-  }
-  const versionFromUvToml = getUvVersionFromFile(
-    `${workingDirectory}${path.sep}uv.toml`,
-  );
-  const versionFromPyproject = getUvVersionFromFile(
-    `${workingDirectory}${path.sep}pyproject.toml`,
-  );
-  if (versionFromUvToml === undefined && versionFromPyproject === undefined) {
-    core.info(
-      "Could not determine uv version from uv.toml or pyproject.toml. Falling back to latest.",
-    );
-  }
-  return await resolveVersion(
-    versionFromUvToml || versionFromPyproject || "latest",
-    manifestFile,
-    githubToken,
-    resolutionStrategy,
-  );
 }
 
 function addUvToPathAndOutput(cachedPath: string): void {
@@ -203,109 +169,115 @@ function addUvToPathAndOutput(cachedPath: string): void {
   core.saveState(STATE_UV_PATH, `${cachedPath}${path.sep}uv`);
   core.setOutput("uvx-path", `${cachedPath}${path.sep}uvx`);
   if (process.env.UV_NO_MODIFY_PATH !== undefined) {
-    core.info("UV_NO_MODIFY_PATH is set, not modifying PATH");
+    log.info("UV_NO_MODIFY_PATH is set, not modifying PATH");
   } else {
     core.addPath(cachedPath);
-    core.info(`Added ${cachedPath} to the path`);
+    log.info(`Added ${cachedPath} to the path`);
   }
 }
 
-function addToolBinToPath(): void {
-  if (toolBinDir !== undefined) {
-    core.exportVariable("UV_TOOL_BIN_DIR", toolBinDir);
-    core.info(`Set UV_TOOL_BIN_DIR to ${toolBinDir}`);
+function addToolBinToPath(inputs: SetupInputs): void {
+  if (inputs.toolBinDir !== undefined) {
+    core.exportVariable("UV_TOOL_BIN_DIR", inputs.toolBinDir);
+    log.info(`Set UV_TOOL_BIN_DIR to ${inputs.toolBinDir}`);
     if (process.env.UV_NO_MODIFY_PATH !== undefined) {
-      core.info(`UV_NO_MODIFY_PATH is set, not adding ${toolBinDir} to path`);
+      log.info(
+        `UV_NO_MODIFY_PATH is set, not adding ${inputs.toolBinDir} to path`,
+      );
     } else {
-      core.addPath(toolBinDir);
-      core.info(`Added ${toolBinDir} to the path`);
+      core.addPath(inputs.toolBinDir);
+      log.info(`Added ${inputs.toolBinDir} to the path`);
     }
   } else {
     if (process.env.UV_NO_MODIFY_PATH !== undefined) {
-      core.info("UV_NO_MODIFY_PATH is set, not adding user local bin to path");
+      log.info("UV_NO_MODIFY_PATH is set, not adding user local bin to path");
       return;
     }
     if (process.env.XDG_BIN_HOME !== undefined) {
       core.addPath(process.env.XDG_BIN_HOME);
-      core.info(`Added ${process.env.XDG_BIN_HOME} to the path`);
+      log.info(`Added ${process.env.XDG_BIN_HOME} to the path`);
     } else if (process.env.XDG_DATA_HOME !== undefined) {
       core.addPath(`${process.env.XDG_DATA_HOME}/../bin`);
-      core.info(`Added ${process.env.XDG_DATA_HOME}/../bin to the path`);
+      log.info(`Added ${process.env.XDG_DATA_HOME}/../bin to the path`);
     } else {
       core.addPath(`${process.env.HOME}/.local/bin`);
-      core.info(`Added ${process.env.HOME}/.local/bin to the path`);
+      log.info(`Added ${process.env.HOME}/.local/bin to the path`);
     }
   }
 }
 
-function setToolDir(): void {
-  if (toolDir !== undefined) {
-    core.exportVariable("UV_TOOL_DIR", toolDir);
-    core.info(`Set UV_TOOL_DIR to ${toolDir}`);
+function setToolDir(inputs: SetupInputs): void {
+  if (inputs.toolDir !== undefined) {
+    core.exportVariable("UV_TOOL_DIR", inputs.toolDir);
+    log.info(`Set UV_TOOL_DIR to ${inputs.toolDir}`);
   }
 }
 
-function addPythonDirToPath(): void {
-  core.exportVariable("UV_PYTHON_INSTALL_DIR", pythonDir);
-  core.info(`Set UV_PYTHON_INSTALL_DIR to ${pythonDir}`);
+function addPythonDirToPath(inputs: SetupInputs): void {
+  core.exportVariable("UV_PYTHON_INSTALL_DIR", inputs.pythonDir);
+  log.info(`Set UV_PYTHON_INSTALL_DIR to ${inputs.pythonDir}`);
   if (process.env.UV_NO_MODIFY_PATH !== undefined) {
-    core.info("UV_NO_MODIFY_PATH is set, not adding python dir to path");
+    log.info("UV_NO_MODIFY_PATH is set, not adding python dir to path");
   } else {
-    core.addPath(pythonDir);
-    core.info(`Added ${pythonDir} to the path`);
+    core.addPath(inputs.pythonDir);
+    log.info(`Added ${inputs.pythonDir} to the path`);
   }
 }
 
-function setupPython(): void {
-  if (pythonVersion !== "") {
-    core.exportVariable("UV_PYTHON", pythonVersion);
-    core.info(`Set UV_PYTHON to ${pythonVersion}`);
+function setupPython(inputs: SetupInputs): void {
+  if (inputs.pythonVersion !== "") {
+    core.exportVariable("UV_PYTHON", inputs.pythonVersion);
+    log.info(`Set UV_PYTHON to ${inputs.pythonVersion}`);
   }
 }
 
-async function activateEnvironment(): Promise<void> {
-  if (activateEnvironmentInput) {
+async function activateEnvironment(inputs: SetupInputs): Promise<void> {
+  if (inputs.activateEnvironment) {
     if (process.env.UV_NO_MODIFY_PATH !== undefined) {
       throw new Error(
         "UV_NO_MODIFY_PATH and activate-environment cannot be used together.",
       );
     }
 
-    core.info(`Creating and activating python venv at ${venvPath}...`);
-    await exec.exec("uv", [
+    log.info(`Creating and activating python venv at ${inputs.venvPath}...`);
+    const venvArgs = [
       "venv",
-      venvPath,
+      inputs.venvPath,
       "--directory",
-      workingDirectory,
+      inputs.workingDirectory,
       "--clear",
-    ]);
+    ];
+    if (inputs.noProject) {
+      venvArgs.push("--no-project");
+    }
+    await exec.exec("uv", venvArgs);
 
-    let venvBinPath = `${venvPath}${path.sep}bin`;
+    let venvBinPath = `${inputs.venvPath}${path.sep}bin`;
     if (process.platform === "win32") {
-      venvBinPath = `${venvPath}${path.sep}Scripts`;
+      venvBinPath = `${inputs.venvPath}${path.sep}Scripts`;
     }
     core.addPath(path.resolve(venvBinPath));
-    core.exportVariable("VIRTUAL_ENV", venvPath);
-    core.setOutput("venv", venvPath);
+    core.exportVariable("VIRTUAL_ENV", inputs.venvPath);
+    core.setOutput("venv", inputs.venvPath);
   }
 }
 
-function setCacheDir(): void {
-  if (cacheLocalPath !== undefined) {
-    if (cacheLocalPath.source === CacheLocalSource.Config) {
-      core.info(
+function setCacheDir(inputs: SetupInputs): void {
+  if (inputs.cacheLocalPath !== undefined) {
+    if (inputs.cacheLocalPath.source === CacheLocalSource.Config) {
+      log.info(
         "Using cache-dir from uv config file, not modifying UV_CACHE_DIR",
       );
       return;
     }
-    core.exportVariable("UV_CACHE_DIR", cacheLocalPath.path);
-    core.info(`Set UV_CACHE_DIR to ${cacheLocalPath.path}`);
+    core.exportVariable("UV_CACHE_DIR", inputs.cacheLocalPath.path);
+    log.info(`Set UV_CACHE_DIR to ${inputs.cacheLocalPath.path}`);
   }
 }
 
-function addMatchers(): void {
-  if (addProblemMatchers) {
-    const matchersPath = path.join(__dirname, `..${path.sep}..`, ".github");
+function addMatchers(inputs: SetupInputs): void {
+  if (inputs.addProblemMatchers) {
+    const matchersPath = path.join(sourceDir, "..", "..", ".github");
     core.info(`##[add-matcher]${path.join(matchersPath, "python.json")}`);
   }
 }
